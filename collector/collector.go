@@ -18,6 +18,11 @@ type Collector struct {
 	Duration     time.Duration
 	OmitDuration time.Duration
 	MSS          int
+	Reverse      bool
+
+	ErrorCounter prometheus.Counter
+	RxCounter    prometheus.Gauge
+	TxCounter    prometheus.Gauge
 }
 
 var (
@@ -214,7 +219,13 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 
 	logger.Debug("Performing iperf3")
 
-	out, err := exec.CommandContext(ctx, c.Iperf3Path, "-J", "-M", strconv.Itoa(c.MSS), "-t", strconv.FormatFloat(c.Duration.Seconds(), 'f', 0, 64), "-O", strconv.FormatFloat(c.OmitDuration.Seconds(), 'f', 0, 64), "-C", "reno", "-c", c.Target).Output()
+	args := []string{
+		"-J", "-M", strconv.Itoa(c.MSS), "-t", strconv.FormatFloat(c.Duration.Seconds(), 'f', 0, 64), "-O", strconv.FormatFloat(c.OmitDuration.Seconds(), 'f', 0, 64), "-c", c.Target,
+	}
+	if c.Reverse {
+		args = append(args, "-R")
+	}
+	out, err := exec.CommandContext(ctx, c.Iperf3Path, args...).Output()
 
 	logger.Debug("iperf3 done")
 
@@ -223,6 +234,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 			"err": err,
 		}).Error("iperf3 probe failed")
 		ch <- prometheus.MustNewConstMetric(successDesc, prometheus.GaugeValue, 0)
+		c.ErrorCounter.Inc()
 		return
 	}
 
@@ -231,11 +243,18 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		logger.WithFields(log.Fields{
 			"err": err,
 		}).Error("Deserialize iperf3 results failed")
+		c.ErrorCounter.Inc()
 		ch <- prometheus.MustNewConstMetric(successDesc, prometheus.GaugeValue, 0)
 		return
 	}
 
 	ch <- prometheus.MustNewConstMetric(successDesc, prometheus.GaugeValue, 1)
+
+	if results.Start.TestStart.Reverse > 0 {
+		c.RxCounter.Add(float64(results.End.SummaryReceived.Bytes))
+	} else {
+		c.TxCounter.Add(float64(results.End.SummarySent.Bytes))
+	}
 
 	reportMetrics(results, ch)
 }

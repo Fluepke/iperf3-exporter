@@ -22,4 +22,22 @@ Usage of ./iperf3-exporter:
 ```
 
 ## Prometheus configuration
-
+```yaml
+scrape_configs:
+  - job_name: 'iperf3'
+    static_configs:
+      - targets:
+        - some.speedtest.server.com
+    metrics_path: /probe
+    params:
+      duration: [ "10s" ]  # overwrite -iperf3.time
+      omit-duration: [ "5s" ]  # overwrite -iper3.omitTime
+      mss: [ "1400" ]  # overwrite -iperf3.mss
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: localhost:9579
+```
